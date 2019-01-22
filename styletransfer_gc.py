@@ -105,6 +105,65 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
 ax1.imshow(imgConvert(content))
 ax2.imshow(imgConvert(style))
 
+model = models.vgg19(pretrained=True).features
+model.cuda()
+#freezing weights
+for param in model.parameters():
+    param.requires_grad_(False)
+
+#Get content and style feature
+content_features = getFeatures(content,model)
+style_features = getFeatures(style,model)
+
+#Calculating the gram matrix for each layer of style representation
+style_grams= {layer: gramMatrix(style_features[layer]) for layer in style_features}
+
+#Creating a target Image 
+targetImage = content.clone().requires_grad_(True).cuda()
+
+style_weights ={
+    'conv1_1':1,
+    'conv2_1':.5,
+    'conv3_1':.5,
+    'conv4_1':.3,
+    'conv5_1':.1,
+}
+
+content_weight = 1
+style_weight = 1e7 #increase this value if you're now observing enough style in output image
+
+show_every = 400 
+
+optimizer = optim.Adam([targetImage],lr=.003)
+steps = 1600 # more steps, more style transfer
+
+for ii in range(1,steps+1):
+
+    target_features = getFeatures(targetImage,model)
+    content_loss = torch.mean((target_features['conv4_2']-content_features['conv4_2'])**2)
+
+    #calculating style loss
+    style_loss=0
+    for layer in style_weights:
+        target_feature = target_features[layer]
+        target_gram = gramMatrix(target_feature)
+        _,d,w,h = target_feature.shape
+
+        style_gram = style_grams[layer]
+        layer_style_loss = style_weights[layer] * torch.mean((target_gram-style_gram)**2)
+        style_loss +=layer_style_loss/(d*h*w)
+
+    total_loss = content_loss*content_weight + style_weight*style_loss
+     
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+    if ii % show_every ==0:
+        print('Total lose :',total_loss.item())
+        plt.imshow(imgConvert(targetImage))
+        plt.savefig('images/step_'+str(ii)+'.png')
+        plt.show()
 
 
 
